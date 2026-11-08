@@ -7,17 +7,19 @@
 #include <cstdlib>
 #include <cstring>
 #include <cstdio>
+#include <vector>
+#include "helper.h"
 using namespace std;
 
 // ---- Constants ----
 const int32_t MAX_VARS_PER_FRAME = 16;
 const int32_t MAX_STACK_DEPTH = 64;
 const int32_t MAX_FUNCS = 128;
-const int32_t MAX_TOKENS = MAX_VARS_PER_FRAME + 2; 
+const int32_t MAX_TOKENS = MAX_VARS_PER_FRAME + 2;
 const int32_t MAX_PATCHES = MAX_FUNCS * 4;
-const uint64_t MAX_SOURCE_BYTES = 15ULL * 1024 * 1024; 
-const int32_t IO_BUFFER_SIZE = 64 * 1024;                  
-const int32_t SOCKET_TIMEOUT_SEC = 5;     
+const uint64_t MAX_SOURCE_BYTES = 15ULL * 1024 * 1024;
+const int32_t IO_BUFFER_SIZE = 64 * 1024;
+const int32_t SOCKET_TIMEOUT_SEC = 5;
 
 string global_error;
 
@@ -33,7 +35,7 @@ class Stack
     int32_t count;
 
 public:
-    Stack(){ 
+    Stack() {
         top = nullptr;
         count = 0;
     }
@@ -44,7 +46,7 @@ public:
             delete n;
         }
     }
-    void push(const T& val){
+    void push(const T& val) {
         if (count >= MAX_STACK_DEPTH) {
             return;
         }
@@ -54,7 +56,7 @@ public:
         top = n;
         count++;
     }
-    T pop(){
+    T pop() {
         if (top == nullptr) {
             return T();
         }
@@ -65,16 +67,16 @@ public:
         count--;
         return val;
     }
-    T& peek(){
+    T& peek() {
         return top->data;
     }
-    bool isEmpty(){
-        return top==nullptr;
+    bool isEmpty() {
+        return top == nullptr;
     }
-    int32_t depth(){
+    int32_t depth() {
         return count;
     }
-    int32_t snapshot_into(T out[], int32_t maxLen){
+    int32_t snapshot_into(T out[], int32_t maxLen) {
         int32_t i = 0;
         Node* curr = top;
         while (curr != nullptr && i < maxLen)
@@ -129,11 +131,11 @@ public:
 };
 
 // Core structs
-struct Variable{
+struct Variable {
     string name;
     int32_t value;
 };
-struct Frame{
+struct Frame {
     string func_name;
     int32_t argc;
     Variable argv[MAX_VARS_PER_FRAME];
@@ -141,12 +143,12 @@ struct Frame{
     Variable locals[MAX_VARS_PER_FRAME];
     int32_t localCount;
 };
-struct Snapshot{
+struct Snapshot {
     Frame callStack[MAX_STACK_DEPTH];
     int32_t stackDepth;
 };
-struct TTDBHeader{
-    char magic[4]; 
+struct TTDBHeader {
+    char magic[4];
     int32_t version;
     int32_t stepCount;
     int64_t indexOffset;
@@ -172,21 +174,21 @@ void writeHeader(FILE* f, const TTDBHeader& h) {
 struct FuncEntry
 {
     string funcName;
-    int64_t byteOffsetInResolveBin; 
+    int64_t byteOffsetInResolveBin;
 };
 struct PendingPatch
 {
-    int64_t byteOffsetOfOffsetField; 
+    int64_t byteOffsetOfOffsetField;
     string targetFuncName;
 };
 
 // Helper functions
 
-bool isSpaceChar(char c){
+bool isSpaceChar(char c) {
     return c == ' ' || c == '\t' || c == '\r' || c == '\n';
 }
 
-string trimString(const string& s){
+string trimString(const string& s) {
     size_t a = s.find_first_not_of(" \t\r\n");
     if (a == string::npos)
         return "";
@@ -194,19 +196,19 @@ string trimString(const string& s){
     return s.substr(a, b - a + 1);
 }
 
-string lowerCase(string s){
-    for (size_t i = 0; i < s.size(); i++){
+string lowerCase(string s) {
+    for (size_t i = 0; i < s.size(); i++) {
         if (s[i] >= 'A' && s[i] <= 'Z')
             s[i] = s[i] - 'A' + 'a';
     }
     return s;
 }
 
-string nthword(const string& line, int32_t n){
+string nthword(const string& line, int32_t n) {
     size_t i = 0;
     size_t len = line.size();
     int32_t idx = 0;
-    while (true){
+    while (true) {
         while (i < len && isSpaceChar(line[i]))
             i++;
         if (i >= len)
@@ -222,7 +224,7 @@ string nthword(const string& line, int32_t n){
 
 
 // PASS 0x0: READING source.bin + VALIDITY CHECK
-bool readSourceLine(ifstream& in, string& out){
+bool readSourceLine(ifstream& in, string& out) {
     string l;
     while (getline(in, l))
     {
@@ -235,13 +237,13 @@ bool readSourceLine(ifstream& in, string& out){
     }
     return false;
 }
-string firstWord(const string& line){
-    return nthword(line,0);
+string firstWord(const string& line) {
+    return nthword(line, 0);
 }
-string secondWord(const string& line){
+string secondWord(const string& line) {
     return nthword(line, 1);
 }
-bool validateProgram(const char* sourcePath){
+bool validateProgram(const char* sourcePath) {
     ifstream in(sourcePath, ios::binary);
     if (!in)
     {
@@ -288,7 +290,7 @@ bool validateProgram(const char* sourcePath){
 }
 
 // PASS 0x1: RESOLVE() -> resolve.bin
-int64_t writeResolveRecord(FILE* f, int64_t offsetField, const string& text){
+int64_t writeResolveRecord(FILE* f, int64_t offsetField, const string& text) {
     int64_t at_this = (int64_t)ftell(f);
     int32_t size = (int32_t)text.size();
     fwrite(&offsetField, sizeof(int64_t), 1, f);
@@ -297,7 +299,7 @@ int64_t writeResolveRecord(FILE* f, int64_t offsetField, const string& text){
         fwrite(text.data(), 1, size, f);
     return at_this;
 }
-int64_t readResolveRecord(FILE* f, string& outText){
+int64_t readResolveRecord(FILE* f, string& outText) {
     int64_t off;
     int32_t size;
     outText.clear();
@@ -315,7 +317,7 @@ int64_t readResolveRecord(FILE* f, string& outText){
     }
     return off;
 }
-int64_t resolveProgram(const char* sourcePath, const char* resolveBinPath){
+int64_t resolveProgram(const char* sourcePath, const char* resolveBinPath) {
     FuncEntry funcArray[MAX_FUNCS];
     int32_t funcCount = 0;
     PendingPatch patches[MAX_PATCHES];
@@ -427,7 +429,7 @@ int64_t resolveProgram(const char* sourcePath, const char* resolveBinPath){
     return mainOffset;
 }
 
-void reportError(const string& msg){
+void reportError(const string& msg) {
     cerr << "ERROR: " << msg << endl;
     ofstream out("error.txt");
     out << "ERROR: " << msg << endl;
@@ -436,7 +438,7 @@ void reportError(const string& msg){
 
 
 // PASS 0x2: EXECUTION (tokenization happens here)
-enum TokenType
+enum TokenKind
 {
     KEYWORD,
     IDENTIFIER,
@@ -444,7 +446,7 @@ enum TokenType
 };
 struct Token
 {
-    TokenType type;
+    TokenKind type;
     string text;
 };
 int32_t tokenizeLine(const string& line, Token tokens[], int32_t maxTokens) {
@@ -834,40 +836,191 @@ void writeTdbg(Timeline& timeline, const char* tdbgPath) {
 
 
 
-// main section
-int32_t main()
+bool receiveSource(int sock, const char* path, string& outError)
 {
+    FILE* f = fopen(path, "wb");
+    if (f == nullptr)
+    {
+        outError = "cannot create source.bin";
+        return false;
+    }
+
+    TrailerChecker checker;
+    vector<char> buf(IO_BUFFER_SIZE);
+    string released;
+    bool gotStatus = false;
+    char status = 0;
+    uint64_t bodyBytes = 0;
+    bool tooBig = false;
+
+    while (true)
+    {
+        int r = (int)recv(sock, buf.data(), IO_BUFFER_SIZE, 0);
+        if (r < 0)
+        {
+            fclose(f);
+            outError = "upload failed or timed out";
+            return false;
+        }
+        if (r == 0)
+            break;
+        if (tooBig)
+            continue;
+
+        released.clear();
+        checker.feed(buf.data(), (size_t)r, released);
+
+        size_t offset = 0;
+        if (!gotStatus && !released.empty())
+        {
+            status = released[0];
+            gotStatus = true;
+            offset = 1;
+        }
+        if (gotStatus && released.size() > offset)
+        {
+            size_t want = released.size() - offset;
+            bodyBytes += want;
+            if (bodyBytes > MAX_SOURCE_BYTES)
+            {
+                tooBig = true;
+                continue;
+            }
+            if (fwrite(released.data() + offset, 1, want, f) != want)
+            {
+                fclose(f);
+                outError = "cannot write source.bin";
+                return false;
+            }
+        }
+    }
+    fclose(f);
+
+    if (tooBig)
+    {
+        outError = "source file is too large";
+        return false;
+    }
+    if (!gotStatus || !checker.verify())
+    {
+        outError = "upload checksum mismatch";
+        return false;
+    }
+    if (status != 0)
+    {
+        outError = "bad request from client";
+        return false;
+    }
+    return true;
+}
+
+bool sendErrorReply(int sock, const string& message)
+{
+    string out;
+    out.push_back((char)1);
+    out += message;
+    uint32_t state = checksumStep(CHECKSUM_START, out.data(), out.size());
+    char trailer[4];
+    putChecksum(checksumFinish(state), trailer);
+    out.append(trailer, 4);
+    return netSendAll(sock, out.data(), out.size());
+}
+
+bool sendTdbgReply(int sock, const char* path, string& outError)
+{
+    FILE* f = fopen(path, "rb");
+    if (f == nullptr)
+    {
+        outError = "cannot read session.tdbg";
+        return false;
+    }
+
+    uint32_t state = CHECKSUM_START;
+    char status = 0;
+    if (!netSendAll(sock, &status, 1))
+    {
+        fclose(f);
+        return true;
+    }
+    state = checksumStep(state, &status, 1);
+
+    vector<char> buf(IO_BUFFER_SIZE);
+    while (true)
+    {
+        size_t got = fread(buf.data(), 1, buf.size(), f);
+        if (got == 0)
+            break;
+        if (!netSendAll(sock, buf.data(), got))
+        {
+            fclose(f);
+            return true;
+        }
+        state = checksumStep(state, buf.data(), got);
+    }
+    fclose(f);
+
+    char trailer[4];
+    putChecksum(checksumFinish(state), trailer);
+    netSendAll(sock, trailer, 4);
+    return true;
+}
+
+bool buildDebugFile(string& outError)
+{
+    global_error.clear();
+    remove("session.tdbg");
 
     if (!validateProgram("source.bin"))
     {
-        reportError(global_error);
-        return 1;
+        outError = global_error;
+        return false;
     }
 
     int64_t mainOffset = resolveProgram("source.bin", "resolve.bin");
-
     if (mainOffset < 0)
     {
-        reportError(global_error);
-        return 1;
+        outError = global_error;
+        return false;
     }
-
-    cout << "resolve.bin created, main starts at offset " << mainOffset << endl;
 
     Timeline timeline;
     executeProgram("resolve.bin", mainOffset, timeline);
     if (!global_error.empty())
     {
-        reportError(global_error);
-        return 1;
+        outError = global_error;
+        return false;
     }
- 
+
     writeTdbg(timeline, "session.tdbg");
     if (!global_error.empty())
     {
-        reportError(global_error);
-        return 1;
+        outError = global_error;
+        return false;
     }
-
-    return 0;
+    return true;
 }
+
+void handleClient(int sock)
+{
+    
+
+    string err;
+    if (!receiveSource(sock, "source.bin", err))
+    {
+        reportError(err);
+        sendErrorReply(sock, err);
+        return;
+    }
+    if (!buildDebugFile(err))
+    {
+        reportError(err);
+        sendErrorReply(sock, err);
+        return;
+    }
+    if (!sendTdbgReply(sock, "session.tdbg", err))
+    {
+        reportError(err);
+        sendErrorReply(sock, err);
+    }
+}
+
