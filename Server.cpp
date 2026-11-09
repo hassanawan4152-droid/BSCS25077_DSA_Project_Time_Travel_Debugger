@@ -1002,7 +1002,7 @@ bool buildDebugFile(string& outError)
 
 void handleClient(int sock)
 {
-    
+    netSetRecvTimeout(sock, SOCKET_TIMEOUT_SEC);
 
     string err;
     if (!receiveSource(sock, "source.bin", err))
@@ -1024,3 +1024,59 @@ void handleClient(int sock)
     }
 }
 
+// main section
+int main(int argc, char* argv[])
+{
+    int port = 5001;
+    if (argc >= 2)
+        port = atoi(argv[1]);
+    if (port < 1 || port > 65535)
+    {
+        cerr << "invalid port" << endl;
+        return 1;
+    }
+    if (!initNetwork())
+    {
+        cerr << "cannot start the network" << endl;
+        return 1;
+    }
+
+    int listenSock = (int)socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (listenSock < 0)
+    {
+        cerr << "cannot create the listen socket" << endl;
+        return 1;
+    }
+    int opt = 1;
+    setsockopt(listenSock, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
+
+    sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons((unsigned short)port);
+    if (bind(listenSock, (struct sockaddr*)&addr, sizeof(addr)) != 0)
+    {
+        cerr << "bind failed on port " << port << " (is it already in use?)" << endl;
+        return 1;
+    }
+    if (listen(listenSock, 8) != 0)
+    {
+        cerr << "listen failed on port " << port << endl;
+        return 1;
+    }
+    cout << "server listening on port " << port << endl;
+
+    while (true)
+    {
+        int client = (int)accept(listenSock, nullptr, nullptr);
+        if (client < 0)
+        {
+            sleepMs(50);
+            continue;
+        }
+        handleClient(client);
+        shutdown(client, SHUT_WR);
+        closeSock(client);
+    }
+}
